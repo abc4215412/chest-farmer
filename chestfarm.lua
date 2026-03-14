@@ -211,21 +211,15 @@ local function rebuildList()
     return remaining
 end
 
--- ===================== DETECT MAP READY - TỐI ƯU =====================
+-- ===================== DETECT MAP READY =====================
 local function waitForMapReady()
     setStatus("Chờ map...", Color3.fromRGB(255, 200, 60))
-
-    -- Chờ NumBonusChests xuất hiện
     while not game.ReplicatedStorage:GetAttribute("NumBonusChests") do
-        task.wait(0.2) -- giảm từ 0.5 xuống 0.2
+        task.wait(0.2)
     end
-
-    -- Chờ chest được tag
     while #CollectionService:GetTagged("BonusChestPart") == 0 do
-        task.wait(0.2) -- giảm từ 0.3 xuống 0.2
+        task.wait(0.2)
     end
-
-    -- Bỏ task.wait(1) buffer thừa
     addLog("✅ " .. #CollectionService:GetTagged("BonusChestPart") .. " chest ready")
 end
 
@@ -257,7 +251,7 @@ local function farmOneRound()
 
         setStatus("Chest " .. i .. "/" .. #parts, Color3.fromRGB(255, 220, 50))
         char.HumanoidRootPart.CFrame = CFrame.new(part.Position + Vector3.new(0, 4, 0))
-        task.wait(0.2) -- giảm từ 0.25 xuống 0.2
+        task.wait(0.2)
 
         prompt = getPrompt(part)
         if not prompt then
@@ -276,7 +270,7 @@ local function farmOneRound()
         end
 
         opened += 1
-        task.wait(0.8) -- giảm từ 1.2 xuống 0.8
+        task.wait(0.8)
         rebuildList()
         addLog("✓ #" .. i .. " | " .. opened .. " mở")
     end
@@ -289,22 +283,40 @@ task.spawn(function()
     while true do
         waitForMapReady()
 
-        local opened, skipped = farmOneRound()
+        -- Lần farm đầu
+        farmOneRound()
         local remaining = rebuildList()
 
-        if remaining > 0 then
-            addLog("⚠ Còn " .. remaining .. " retry...")
-            task.wait(2) -- giảm từ 3 xuống 2
+        -- Nếu còn sót thì retry sau 10 giây cho đến khi sạch
+        local retryCount = 0
+        while remaining > 0 do
+            retryCount += 1
+            setStatus(
+                "⚠ Còn " .. remaining .. " chest — retry #" .. retryCount .. " sau 10s",
+                Color3.fromRGB(255, 180, 60)
+            )
+            addLog("⚠ Còn " .. remaining .. " chest, retry #" .. retryCount .. " sau 10s")
+
+            -- Đếm ngược 10 giây
+            for i = 10, 1, -1 do
+                setStatus(
+                    "⏳ Retry #" .. retryCount .. " sau " .. i .. "s",
+                    Color3.fromRGB(255, 180, 60)
+                )
+                task.wait(1)
+            end
+
             farmOneRound()
-            rebuildList()
+            remaining = rebuildList()
         end
 
-        setStatus("✅ " .. opened .. " mở — chờ map mới", Color3.fromRGB(80, 255, 120))
-        addLog("✅ Xong! Chờ map tiếp...")
+        -- Sạch hết chest
+        setStatus("✅ Sạch chest! Chờ map mới...", Color3.fromRGB(80, 255, 120))
+        addLog("✅ Mở sạch! Chờ map tiếp...")
 
         -- Chờ map reset
         while game.ReplicatedStorage:GetAttribute("NumBonusChests") ~= nil do
-            task.wait(0.3) -- giảm từ 0.5 xuống 0.3
+            task.wait(0.3)
         end
 
         addLog("🔄 Map mới!")
