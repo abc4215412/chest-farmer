@@ -1,4 +1,3 @@
-```lua
 -- Chạy từ executor
 
 local Players = game:GetService("Players")
@@ -212,10 +211,11 @@ local function rebuildList()
     return remaining
 end
 
--- ===================== FARM 1 ROUND =====================
+-- ===================== FARM 1 LẦN =====================
 local function farmOneRound()
     local parts = CollectionService:GetTagged("BonusChestPart")
     local opened = 0
+    local skipped = 0
 
     rebuildList()
     addLog("▶ Farm " .. #parts .. " chest")
@@ -232,14 +232,20 @@ local function farmOneRound()
         end
 
         local prompt = getPrompt(part)
-        if not prompt then continue end
+        if not prompt then
+            skipped += 1
+            continue
+        end
 
         setStatus("Chest " .. i .. "/" .. #parts, Color3.fromRGB(255, 220, 50))
         char.HumanoidRootPart.CFrame = CFrame.new(part.Position + Vector3.new(0, 4, 0))
         task.wait(0.2)
 
         prompt = getPrompt(part)
-        if not prompt then continue end
+        if not prompt then
+            skipped += 1
+            continue
+        end
 
         local ok = pcall(fireproximityprompt, prompt)
         if not ok then
@@ -257,41 +263,29 @@ local function farmOneRound()
         addLog("✓ #" .. i .. " | " .. opened .. " mở")
     end
 
-    return opened
+    return opened, skipped
 end
 
--- ===================== MAIN LOOP =====================
+-- ===================== CHẠY 1 LẦN SAU 20 GIÂY =====================
 task.spawn(function()
-    while true do
-        -- Đếm ngược 20 giây
-        for i = 20, 1, -1 do
-            setStatus(
-                "⏳ Bắt đầu sau " .. i .. "s",
-                Color3.fromRGB(255, 200, 60)
-            )
-            task.wait(1)
-        end
-
-        -- Scan và hiện list chest
-        rebuildList()
-        addLog("🔍 " .. #CollectionService:GetTagged("BonusChestPart") .. " chest found")
-
-        -- Farm 1 lần duy nhất
-        local opened = farmOneRound()
-        rebuildList()
-
-        setStatus("✅ Xong! " .. opened .. " mở — chờ map mới", Color3.fromRGB(80, 255, 120))
-        addLog("✅ Xong! Chờ map mới...")
-
-        -- Chờ map reset
-        while game.ReplicatedStorage:GetAttribute("NumBonusChests") ~= nil do
-            task.wait(0.3)
-        end
-
-        addLog("🔄 Map mới!")
-        for _, c in scrollFrame:GetChildren() do
-            if c:IsA("TextButton") then c:Destroy() end
-        end
-        countLabel.Text = "Chests: 0 total | 0 còn lại"
+    -- Đếm ngược 20 giây
+    for i = 20, 1, -1 do
+        setStatus("Bắt đầu sau " .. i .. "s...", Color3.fromRGB(255, 200, 60))
+        task.wait(1)
     end
+
+    -- Chờ chest xuất hiện
+    setStatus("Chờ chest...", Color3.fromRGB(255, 200, 60))
+    while #CollectionService:GetTagged("BonusChestPart") == 0 do
+        task.wait(0.2)
+    end
+
+    addLog("✅ " .. #CollectionService:GetTagged("BonusChestPart") .. " chest ready")
+
+    -- Farm 1 lần
+    local opened, skipped = farmOneRound()
+    rebuildList()
+
+    setStatus("✅ Xong! " .. opened .. " mở / " .. skipped .. " skip", Color3.fromRGB(80, 255, 120))
+    addLog("✅ Hoàn thành!")
 end)
