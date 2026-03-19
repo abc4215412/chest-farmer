@@ -211,37 +211,6 @@ local function rebuildList()
     return remaining
 end
 
--- ===================== WAIT FOR READY =====================
--- Dùng attribute "Ready" trên player — server set khi map load xong
--- Khi Ready = false hoặc bị xóa thì map đang reset (giữa các round)
-local function waitForReady()
-    setStatus("Chờ intro / map load...", Color3.fromRGB(255, 200, 60))
-    addLog("⏳ Chờ Ready attribute...")
-
-    -- Chờ Ready = true
-    while player:GetAttribute("Ready") ~= true do
-        task.wait(0.3)
-    end
-
-    -- Thêm buffer nhỏ để chest được tag đầy đủ
-    task.wait(0.5)
-
-    -- Đảm bảo có ít nhất 1 chest
-    local waited = 0
-    while #CollectionService:GetTagged("BonusChestPart") == 0 do
-        task.wait(0.3)
-        waited += 0.3
-        if waited > 10 then
-            -- Timeout: Ready = true nhưng không có chest (map không có chest)
-            addLog("⚠ Không có chest trên map này")
-            return false
-        end
-    end
-
-    addLog("✅ Ready! " .. #CollectionService:GetTagged("BonusChestPart") .. " chest")
-    return true
-end
-
 -- ===================== FARM 1 ROUND =====================
 local function farmOneRound()
     local parts = CollectionService:GetTagged("BonusChestPart")
@@ -252,12 +221,6 @@ local function farmOneRound()
     addLog("▶ Farm " .. #parts .. " chest")
 
     for i, part in parts do
-        -- Nếu Ready bị tắt giữa chừng (map đổi) thì dừng ngay
-        if player:GetAttribute("Ready") ~= true then
-            addLog("⚠ Map reset giữa chừng, dừng")
-            break
-        end
-
         local char = player.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then
             task.wait(1)
@@ -303,44 +266,27 @@ local function farmOneRound()
     return opened, skipped
 end
 
--- ===================== MAIN LOOP =====================
+-- ===================== MAIN =====================
 task.spawn(function()
-    while true do
-        -- Bước 1: chờ map sẵn sàng (qua intro, qua loading)
-        local ok = waitForReady()
-
-        if ok then
-            -- Bước 2: farm hết chest
-            local opened, skipped = farmOneRound()
-            local remaining = rebuildList()
-
-            -- Bước 3: nếu còn sót thì retry 1 lần
-            if remaining > 0 and player:GetAttribute("Ready") == true then
-                addLog("⚠ Còn " .. remaining .. " chest, retry...")
-                task.wait(2)
-                farmOneRound()
-                rebuildList()
-            end
-
-            setStatus("✅ Xong! Chờ round mới...", Color3.fromRGB(80, 255, 120))
-            addLog("✅ Xong! Chờ map tiếp...")
-        end
-
-        -- Bước 4: chờ Ready tắt đi (server reset map / round mới bắt đầu)
-        -- Khi Ready = false server đang clear chest cũ (theo decompiled code)
-        while player:GetAttribute("Ready") == true do
-            task.wait(0.5)
-        end
-
-        addLog("🔄 Map reset, chờ round mới...")
-        setStatus("Chờ round mới...", Color3.fromRGB(180, 180, 255))
-
-        -- Reset UI
-        for _, c in scrollFrame:GetChildren() do
-            if c:IsA("TextButton") then c:Destroy() end
-        end
-        countLabel.Text = "Chests: 0 total | 0 còn lại"
-
-        -- Vòng lặp tiếp tục → waitForReady() sẽ chờ Ready = true lần nữa
+    -- Đếm ngược 30 giây
+    for i = 30, 1, -1 do
+        setStatus("Bắt đầu sau " .. i .. "s...", Color3.fromRGB(255, 200, 60))
+        task.wait(1)
     end
+
+    -- Chờ có chest (phòng map load chậm hơn 20s)
+    setStatus("Chờ chest...", Color3.fromRGB(255, 200, 60))
+    addLog("⏳ Chờ chest xuất hiện...")
+    while #CollectionService:GetTagged("BonusChestPart") == 0 do
+        task.wait(0.3)
+    end
+
+    addLog("✅ " .. #CollectionService:GetTagged("BonusChestPart") .. " chest ready")
+
+    -- Farm đúng 1 lần rồi dừng
+    local opened, skipped = farmOneRound()
+    rebuildList()
+
+    setStatus("✅ Xong! " .. opened .. " mở / " .. skipped .. " skip", Color3.fromRGB(80, 255, 120))
+    addLog("✅ Hoàn thành! Script dừng.")
 end)
