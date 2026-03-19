@@ -10,8 +10,8 @@ if _G.ChestFarmLoaded then return end
 _G.ChestFarmLoaded = true
 
 -- ===================== KEEP ALIVE =====================
-local queueteleport = queue_on_teleport 
-    or (syn and syn.queue_on_teleport) 
+local queueteleport = queue_on_teleport
+    or (syn and syn.queue_on_teleport)
     or (fluxus and fluxus.queue_on_teleport)
 
 local TeleportCheck = false
@@ -168,7 +168,6 @@ local function setStatus(text, color)
     statusLabel.TextColor3 = color or Color3.fromRGB(150, 255, 180)
 end
 
--- getPrompt tìm sâu hơn vì prompt nằm trong Attachment
 local function getPrompt(part)
     for _, desc in part:GetDescendants() do
         if desc:IsA("ProximityPrompt") and desc.Enabled then
@@ -189,16 +188,16 @@ local function rebuildList()
         if not opened then remaining += 1 end
         local btn = Instance.new("TextButton")
         btn.Size = UDim2.new(1, -6, 0, 26)
-        btn.BackgroundColor3 = opened 
-            and Color3.fromRGB(24, 24, 34) 
+        btn.BackgroundColor3 = opened
+            and Color3.fromRGB(24, 24, 34)
             or Color3.fromRGB(40, 50, 80)
         btn.BorderSizePixel = 0
         btn.Text = (opened and "✓ " or "📦 ") .. "Chest #" .. i
-            .. " (" .. math.floor(part.Position.X) .. ", " 
+            .. " (" .. math.floor(part.Position.X) .. ", "
             .. math.floor(part.Position.Z) .. ")"
             .. (opened and "  [mở rồi]" or "")
-        btn.TextColor3 = opened 
-            and Color3.fromRGB(80, 80, 80) 
+        btn.TextColor3 = opened
+            and Color3.fromRGB(80, 80, 80)
             or Color3.fromRGB(200, 220, 255)
         btn.TextSize = 11
         btn.Font = Enum.Font.Gotham
@@ -212,7 +211,38 @@ local function rebuildList()
     return remaining
 end
 
--- ===================== FARM 1 LẦN =====================
+-- ===================== WAIT FOR READY =====================
+-- Dùng attribute "Ready" trên player — server set khi map load xong
+-- Khi Ready = false hoặc bị xóa thì map đang reset (giữa các round)
+local function waitForReady()
+    setStatus("Chờ intro / map load...", Color3.fromRGB(255, 200, 60))
+    addLog("⏳ Chờ Ready attribute...")
+
+    -- Chờ Ready = true
+    while player:GetAttribute("Ready") ~= true do
+        task.wait(0.3)
+    end
+
+    -- Thêm buffer nhỏ để chest được tag đầy đủ
+    task.wait(0.5)
+
+    -- Đảm bảo có ít nhất 1 chest
+    local waited = 0
+    while #CollectionService:GetTagged("BonusChestPart") == 0 do
+        task.wait(0.3)
+        waited += 0.3
+        if waited > 10 then
+            -- Timeout: Ready = true nhưng không có chest (map không có chest)
+            addLog("⚠ Không có chest trên map này")
+            return false
+        end
+    end
+
+    addLog("✅ Ready! " .. #CollectionService:GetTagged("BonusChestPart") .. " chest")
+    return true
+end
+
+-- ===================== FARM 1 ROUND =====================
 local function farmOneRound()
     local parts = CollectionService:GetTagged("BonusChestPart")
     local opened = 0
@@ -222,6 +252,12 @@ local function farmOneRound()
     addLog("▶ Farm " .. #parts .. " chest")
 
     for i, part in parts do
+        -- Nếu Ready bị tắt giữa chừng (map đổi) thì dừng ngay
+        if player:GetAttribute("Ready") ~= true then
+            addLog("⚠ Map reset giữa chừng, dừng")
+            break
+        end
+
         local char = player.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then
             task.wait(1)
@@ -239,32 +275,27 @@ local function farmOneRound()
         end
 
         setStatus("Chest " .. i .. "/" .. #parts, Color3.fromRGB(255, 220, 50))
-
-        -- Teleport sát chest
         char.HumanoidRootPart.CFrame = CFrame.new(part.Position + Vector3.new(0, 4, 0))
-        task.wait(0.3) -- chờ server nhận vị trí
+        task.wait(0.2)
 
-        -- Kiểm tra lại prompt sau teleport
         prompt = getPrompt(part)
         if not prompt then
             skipped += 1
             continue
         end
 
-        -- fireproximityprompt với HoldDuration = 0.5
         local ok = pcall(fireproximityprompt, prompt)
         if not ok then
             pcall(function()
                 local vim = game:GetService("VirtualInputManager")
                 vim:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-                task.wait(0.5 + 0.15) -- HoldDuration 0.5 + buffer
+                task.wait((prompt.HoldDuration or 0) + 0.1)
                 vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
             end)
         end
 
         opened += 1
-        -- Chờ animation mở chest (1.5s theo code gốc)
-        task.wait(1.8)
+        task.wait(0.8)
         rebuildList()
         addLog("✓ #" .. i .. " | " .. opened .. " mở")
     end
@@ -272,26 +303,44 @@ local function farmOneRound()
     return opened, skipped
 end
 
--- ===================== CHẠY 1 LẦN SAU 30 GIÂY =====================
+-- ===================== MAIN LOOP =====================
 task.spawn(function()
-    -- Đếm ngược 30 giây
-    for i = 30, 1, -1 do
-        setStatus("Bắt đầu sau " .. i .. "s...", Color3.fromRGB(255, 200, 60))
-        task.wait(1)
+    while true do
+        -- Bước 1: chờ map sẵn sàng (qua intro, qua loading)
+        local ok = waitForReady()
+
+        if ok then
+            -- Bước 2: farm hết chest
+            local opened, skipped = farmOneRound()
+            local remaining = rebuildList()
+
+            -- Bước 3: nếu còn sót thì retry 1 lần
+            if remaining > 0 and player:GetAttribute("Ready") == true then
+                addLog("⚠ Còn " .. remaining .. " chest, retry...")
+                task.wait(2)
+                farmOneRound()
+                rebuildList()
+            end
+
+            setStatus("✅ Xong! Chờ round mới...", Color3.fromRGB(80, 255, 120))
+            addLog("✅ Xong! Chờ map tiếp...")
+        end
+
+        -- Bước 4: chờ Ready tắt đi (server reset map / round mới bắt đầu)
+        -- Khi Ready = false server đang clear chest cũ (theo decompiled code)
+        while player:GetAttribute("Ready") == true do
+            task.wait(0.5)
+        end
+
+        addLog("🔄 Map reset, chờ round mới...")
+        setStatus("Chờ round mới...", Color3.fromRGB(180, 180, 255))
+
+        -- Reset UI
+        for _, c in scrollFrame:GetChildren() do
+            if c:IsA("TextButton") then c:Destroy() end
+        end
+        countLabel.Text = "Chests: 0 total | 0 còn lại"
+
+        -- Vòng lặp tiếp tục → waitForReady() sẽ chờ Ready = true lần nữa
     end
-
-    -- Chờ chest xuất hiện
-    setStatus("Chờ chest...", Color3.fromRGB(255, 200, 60))
-    while #CollectionService:GetTagged("BonusChestPart") == 0 do
-        task.wait(0.2)
-    end
-
-    addLog("✅ " .. #CollectionService:GetTagged("BonusChestPart") .. " chest ready")
-
-    -- Farm 1 lần
-    local opened, skipped = farmOneRound()
-    rebuildList()
-
-    setStatus("✅ Xong! " .. opened .. " mở / " .. skipped .. " skip", Color3.fromRGB(80, 255, 120))
-    addLog("✅ Hoàn thành!")
 end)
