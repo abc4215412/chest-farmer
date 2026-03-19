@@ -211,86 +211,124 @@ local function rebuildList()
     return remaining
 end
 
--- ===================== FARM 1 LẦN =====================
-local function farmOneRound()
-    local parts = CollectionService:GetTagged("BonusChestPart")
-    local opened = 0
-    local skipped = 0
-
-    rebuildList()
-    addLog("▶ Farm " .. #parts .. " chest")
-
-    for i, part in parts do
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then
-            task.wait(1)
-            char = player.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") then
-                addLog("✗ Mất character")
-                break
-            end
-        end
-
-        local prompt = getPrompt(part)
-        if not prompt then
-            skipped += 1
-            continue
-        end
-
-        setStatus("Chest " .. i .. "/" .. #parts, Color3.fromRGB(255, 220, 50))
-        char.HumanoidRootPart.CFrame = CFrame.new(part.Position + Vector3.new(0, 4, 0))
-        task.wait(0.2)
-
-        prompt = getPrompt(part)
-        if not prompt then
-            skipped += 1
-            continue
-        end
-
-        local ok = pcall(fireproximityprompt, prompt)
-        if not ok then
-            pcall(function()
-                local vim = game:GetService("VirtualInputManager")
-                vim:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-                task.wait((prompt.HoldDuration or 0) + 0.1)
-                vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
-            end)
-        end
-
-        opened += 1
-        task.wait(0.8)
-        rebuildList()
-        addLog("✓ #" .. i .. " | " .. opened .. " mở")
-    end
-
-    return opened, skipped
-end
-
--- ===================== CHẠY 1 LẦN DUY NHẤT =====================
-task.spawn(function()
-
-    -- Bước 1: chờ Ready = true (server set sau khi qua intro + map load xong)
-    -- Đây thay thế hoàn toàn đếm ngược 30s cứng
+-- ===================== WAIT FOR READY =====================
+local function waitForReady()
     setStatus("Chờ intro / map load...", Color3.fromRGB(255, 200, 60))
-    addLog("⏳ Chờ Ready...")
+    addLog("⏳ Chờ Ready attribute...")
 
     while player:GetAttribute("Ready") ~= true do
         task.wait(0.3)
     end
 
-    -- Bước 2: buffer nhỏ + chờ chest được tag đầy đủ
     task.wait(0.5)
+
+    local waited = 0
     while #CollectionService:GetTagged("BonusChestPart") == 0 do
         task.wait(0.3)
+        waited += 0.3
+        if waited > 10 then
+            addLog("⚠ Không có chest trên map này")
+            return false
+        end
     end
 
-    addLog("✅ " .. #CollectionService:GetTagged("BonusChestPart") .. " chest ready")
+    addLog("✅ Ready! " .. #CollectionService:GetTagged("BonusChestPart") .. " chest")
+    return true
+end
 
-    -- Bước 3: farm 1 lần duy nhất rồi dừng
-    local opened, skipped = farmOneRound()
-    rebuildList()
+-- ===================== FARM - LẶP ĐẾN KHI HẾT CHEST =====================
+local function farmOneRound()
+    while player:GetAttribute("Ready") == true do
+        local parts = CollectionService:GetTagged("BonusChestPart")
 
-    setStatus("✅ Xong! " .. opened .. " mở / " .. skipped .. " skip", Color3.fromRGB(80, 255, 120))
-    addLog("✅ Hoàn thành!")
+        -- Lọc chest chưa mở
+        local unopened = {}
+        for _, part in parts do
+            if getPrompt(part) then
+                table.insert(unopened, part)
+            end
+        end
 
+        -- Không còn chest nào → xong thật sự
+        if #unopened == 0 then
+            rebuildList()
+            addLog("✅ Hết chest!")
+            return
+        end
+
+        rebuildList()
+        addLog("🔄 Còn " .. #unopened .. " chest, tiếp tục...")
+
+        for _, part in unopened do
+            -- Map reset giữa chừng thì dừng ngay
+            if player:GetAttribute("Ready") ~= true then
+                addLog("⚠ Map reset, dừng")
+                return
+            end
+
+            local char = player.Character
+            if not char or not char:FindFirstChild("HumanoidRootPart") then
+                task.wait(1)
+                char = player.Character
+                if not char or not char:FindFirstChild("HumanoidRootPart") then
+                    addLog("✗ Mất character")
+                    return
+                end
+            end
+
+            local prompt = getPrompt(part)
+            if not prompt then continue end
+
+            local idx = table.find(CollectionService:GetTagged("BonusChestPart"), part) or 0
+            setStatus("Chest #" .. idx .. " | còn " .. #unopened, Color3.fromRGB(255, 220, 50))
+            char.HumanoidRootPart.CFrame = CFrame.new(part.Position + Vector3.new(0, 4, 0))
+            task.wait(0.2)
+
+            prompt = getPrompt(part)
+            if not prompt then continue end
+
+            local ok = pcall(fireproximityprompt, prompt)
+            if not ok then
+                pcall(function()
+                    local vim = game:GetService("VirtualInputManager")
+                    vim:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+                    task.wait((prompt.HoldDuration or 0) + 0.1)
+                    vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+                end)
+            end
+
+            task.wait(0.8)
+            rebuildList()
+        end
+
+        -- Đợi chút rồi quét lại toàn bộ (phòng server chậm chưa disable prompt kịp)
+        task.wait(0.5)
+    end
+end
+
+-- ===================== MAIN LOOP =====================
+task.spawn(function()
+    while true do
+        local ok = waitForReady()
+
+        if ok then
+            farmOneRound()
+            setStatus("✅ Xong! Chờ round mới...", Color3.fromRGB(80, 255, 120))
+            addLog("✅ Xong! Chờ map tiếp...")
+        end
+
+        -- Chờ Ready tắt (map đổi / round mới)
+        while player:GetAttribute("Ready") == true do
+            task.wait(0.5)
+        end
+
+        addLog("🔄 Map reset, chờ round mới...")
+        setStatus("Chờ round mới...", Color3.fromRGB(180, 180, 255))
+
+        -- Reset UI
+        for _, c in scrollFrame:GetChildren() do
+            if c:IsA("TextButton") then c:Destroy() end
+        end
+        countLabel.Text = "Chests: 0 total | 0 còn lại"
+    end
 end)
