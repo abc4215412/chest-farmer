@@ -266,26 +266,31 @@ local function farmOneRound()
     return opened, skipped
 end
 
--- ===================== CHẠY 1 LẦN SAU 30 GIÂY =====================
+-- ===================== CHẠY 1 LẦN DUY NHẤT =====================
 task.spawn(function()
-    -- Đếm ngược 30 giây
-    for i = 30, 1, -1 do
-        setStatus("Bắt đầu sau " .. i .. "s...", Color3.fromRGB(255, 200, 60))
-        task.wait(1)
+
+    -- Bước 1: chờ Ready = true (server set sau khi qua intro + map load xong)
+    -- Đây thay thế hoàn toàn đếm ngược 30s cứng
+    setStatus("Chờ intro / map load...", Color3.fromRGB(255, 200, 60))
+    addLog("⏳ Chờ Ready...")
+
+    while player:GetAttribute("Ready") ~= true do
+        task.wait(0.3)
     end
 
-    -- Chờ chest xuất hiện
-    setStatus("Chờ chest...", Color3.fromRGB(255, 200, 60))
+    -- Bước 2: buffer nhỏ + chờ chest được tag đầy đủ
+    task.wait(0.5)
     while #CollectionService:GetTagged("BonusChestPart") == 0 do
-        task.wait(0.2)
+        task.wait(0.3)
     end
 
     addLog("✅ " .. #CollectionService:GetTagged("BonusChestPart") .. " chest ready")
 
-    -- Farm 1 lần duy nhất
+    -- Bước 3: farm 1 lần duy nhất rồi dừng
     local opened, skipped = farmOneRound()
     rebuildList()
 
     setStatus("✅ Xong! " .. opened .. " mở / " .. skipped .. " skip", Color3.fromRGB(80, 255, 120))
     addLog("✅ Hoàn thành!")
+
 end)
