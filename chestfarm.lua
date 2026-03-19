@@ -237,13 +237,13 @@ local function waitForReady()
 end
 
 -- ===================== FARM 1 ROUND =====================
-local function farmOneRound(label)
+local function farmOneRound()
     local parts = CollectionService:GetTagged("BonusChestPart")
     local opened = 0
     local skipped = 0
 
     rebuildList()
-    addLog("▶ " .. (label or "Farm") .. " | " .. #parts .. " chest")
+    addLog("▶ Farm | " .. #parts .. " chest")
 
     for i, part in parts do
         if player:GetAttribute("Ready") ~= true then
@@ -267,7 +267,7 @@ local function farmOneRound(label)
             continue
         end
 
-        setStatus((label or "Farm") .. " " .. i .. "/" .. #parts, Color3.fromRGB(255, 220, 50))
+        setStatus("Chest " .. i .. "/" .. #parts, Color3.fromRGB(255, 220, 50))
         char.HumanoidRootPart.CFrame = CFrame.new(part.Position + Vector3.new(0, 4, 0))
         task.wait(0.2)
 
@@ -300,38 +300,30 @@ end
 task.spawn(function()
     while true do
 
-        -- Bước 1: chờ map sẵn sàng
+        -- Bước 1: chờ map sẵn sàng (qua intro, loading...)
         local ok = waitForReady()
 
         if ok then
-            -- Bước 2: farm lần 1
-            farmOneRound("Lần 1")
-            rebuildList()
-
-            -- Bước 3: đếm ngược 30 giây rồi farm lần 2
-            -- (chest mới có thể được người chơi khác bỏ qua hoặc spawn muộn)
-            if player:GetAttribute("Ready") == true then
-                for i = 30, 1, -1 do
-                    -- Nếu map reset giữa lúc đếm thì thoát luôn
-                    if player:GetAttribute("Ready") ~= true then
-                        addLog("⚠ Map reset khi đếm ngược, bỏ lần 2")
-                        break
-                    end
-                    setStatus("Chờ lần 2: " .. i .. "s...", Color3.fromRGB(180, 180, 255))
-                    task.wait(1)
+            -- Bước 2: đếm ngược 30 giây trước khi farm
+            for i = 30, 1, -1 do
+                if player:GetAttribute("Ready") ~= true then
+                    addLog("⚠ Map reset khi đếm ngược")
+                    break
                 end
+                setStatus("Bắt đầu sau " .. i .. "s...", Color3.fromRGB(180, 180, 255))
+                task.wait(1)
             end
 
-            -- Bước 4: farm lần 2 (chỉ chạy nếu map vẫn còn Ready)
+            -- Bước 3: farm 1 lần duy nhất (nếu map vẫn còn Ready)
             if player:GetAttribute("Ready") == true then
-                farmOneRound("Lần 2")
+                farmOneRound()
                 rebuildList()
-                setStatus("✅ Xong cả 2 lần! Chờ round mới...", Color3.fromRGB(80, 255, 120))
+                setStatus("✅ Xong! Chờ round mới...", Color3.fromRGB(80, 255, 120))
                 addLog("✅ Xong! Chờ map tiếp...")
             end
         end
 
-        -- Bước 5: chờ Ready tắt (map đổi / round mới)
+        -- Bước 4: chờ Ready tắt (map đổi / round mới)
         while player:GetAttribute("Ready") == true do
             task.wait(0.5)
         end
