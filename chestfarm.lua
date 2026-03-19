@@ -168,6 +168,7 @@ local function setStatus(text, color)
     statusLabel.TextColor3 = color or Color3.fromRGB(150, 255, 180)
 end
 
+-- getPrompt tìm sâu hơn vì prompt nằm trong Attachment
 local function getPrompt(part)
     for _, desc in part:GetDescendants() do
         if desc:IsA("ProximityPrompt") and desc.Enabled then
@@ -238,27 +239,32 @@ local function farmOneRound()
         end
 
         setStatus("Chest " .. i .. "/" .. #parts, Color3.fromRGB(255, 220, 50))
-        char.HumanoidRootPart.CFrame = CFrame.new(part.Position + Vector3.new(0, 4, 0))
-        task.wait(0.2)
 
+        -- Teleport sát chest
+        char.HumanoidRootPart.CFrame = CFrame.new(part.Position + Vector3.new(0, 4, 0))
+        task.wait(0.3) -- chờ server nhận vị trí
+
+        -- Kiểm tra lại prompt sau teleport
         prompt = getPrompt(part)
         if not prompt then
             skipped += 1
             continue
         end
 
+        -- fireproximityprompt với HoldDuration = 0.5
         local ok = pcall(fireproximityprompt, prompt)
         if not ok then
             pcall(function()
                 local vim = game:GetService("VirtualInputManager")
                 vim:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-                task.wait((prompt.HoldDuration or 0) + 0.1)
+                task.wait(0.5 + 0.15) -- HoldDuration 0.5 + buffer
                 vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
             end)
         end
 
         opened += 1
-        task.wait(0.8)
+        -- Chờ animation mở chest (1.5s theo code gốc)
+        task.wait(1.8)
         rebuildList()
         addLog("✓ #" .. i .. " | " .. opened .. " mở")
     end
