@@ -211,48 +211,37 @@ local function rebuildList()
     return remaining
 end
 
--- ===================== FIRE PROMPT (không cần focus cửa sổ) =====================
-local function firePromptSafe(prompt, part)
-    -- Cách 1: fireproximityprompt — không cần focus, không cần camera
-    local ok = pcall(fireproximityprompt, prompt)
-    if ok then return end
+-- ===================== OPEN PROMPT (không cần focus/camera) =====================
+local function openPrompt(prompt)
+    -- Cách 1: fireproximityprompt — chuẩn nhất, không cần focus cửa sổ
+    if fireproximityprompt then
+        local ok, err = pcall(fireproximityprompt, prompt)
+        if ok then return true end
+    end
 
-    -- Cách 2: click trực tiếp vào ProximityPrompt UI button
-    local clickOk = pcall(function()
-        local playerGui = player:FindFirstChild("PlayerGui")
-        if playerGui then
-            for _, gui in playerGui:GetDescendants() do
-                if gui:IsA("TextButton") and gui.Text:find("Open Chest") then
-                    fireclickdetector and fireclickdetector(gui)
-                    break
-                end
-            end
-        end
-    end)
-    if clickOk then return end
+    -- Cách 2: tên hàm thay thế trên một số executor
+    if fire_proximity_prompt then
+        local ok = pcall(fire_proximity_prompt, prompt)
+        if ok then return true end
+    end
 
-    -- Cách 3: fallback — xoay camera + phím E
-    -- Chỉ hoạt động khi Roblox đang được focus
-    pcall(function()
-        local cam = workspace.CurrentCamera
-        local char = player.Character
-        local root = char and char:FindFirstChild("HumanoidRootPart")
-        if cam and root then
-            local oldType = cam.CameraType
-            cam.CameraType = Enum.CameraType.Scriptable
-            cam.CFrame = CFrame.lookAt(
-                root.Position + Vector3.new(0, 1.5, 0),
-                part.Position
-            )
-            task.wait(0.05)
-            local vim = game:GetService("VirtualInputManager")
-            vim:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-            task.wait((prompt.HoldDuration or 0.5) + 0.15)
-            vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
-            task.wait(0.1)
-            cam.CameraType = oldType
-        end
+    -- Cách 3: fire thẳng signal Triggered — bypass hoàn toàn input
+    -- Không cần focus, không cần camera, không cần E
+    local ok = pcall(function()
+        prompt.Triggered:Fire(player)
     end)
+    if ok then return true end
+
+    -- Cách 4: dùng TeleportService workaround — gọi internal trigger
+    local ok2 = pcall(function()
+        local args = {
+            [1] = prompt
+        }
+        game:GetService("ProximityPromptService").PromptTriggered:Fire(unpack(args))
+    end)
+    if ok2 then return true end
+
+    return false
 end
 
 -- ===================== WAIT FOR READY =====================
@@ -312,6 +301,8 @@ local function farmOneRound()
         end
 
         setStatus("Chest " .. i .. "/" .. #parts, Color3.fromRGB(255, 220, 50))
+
+        -- Teleport sát chest để đảm bảo trong tầm ProximityPrompt
         char.HumanoidRootPart.CFrame = CFrame.new(part.Position + Vector3.new(0, 4, 0))
         task.wait(0.2)
 
@@ -321,12 +312,17 @@ local function farmOneRound()
             continue
         end
 
-        firePromptSafe(prompt, part)
+        -- Mở prompt — không cần focus cửa sổ hay nhìn vào chest
+        local success = openPrompt(prompt)
+        if success then
+            opened += 1
+            addLog("✓ #" .. i .. " | " .. opened .. " mở")
+        else
+            addLog("✗ #" .. i .. " thất bại")
+        end
 
-        opened += 1
         task.wait(0.8)
         rebuildList()
-        addLog("✓ #" .. i .. " | " .. opened .. " mở")
     end
 
     return opened, skipped
@@ -336,9 +332,11 @@ end
 task.spawn(function()
     while true do
 
+        -- Bước 1: chờ map sẵn sàng
         local ok = waitForReady()
 
         if ok then
+            -- Bước 2: đếm ngược 30 giây
             for i = 30, 1, -1 do
                 if player:GetAttribute("Ready") ~= true then
                     addLog("⚠ Map reset khi đếm ngược")
@@ -348,6 +346,7 @@ task.spawn(function()
                 task.wait(1)
             end
 
+            -- Bước 3: farm 1 lần
             if player:GetAttribute("Ready") == true then
                 farmOneRound()
                 rebuildList()
@@ -356,6 +355,7 @@ task.spawn(function()
             end
         end
 
+        -- Bước 4: chờ Ready tắt
         while player:GetAttribute("Ready") == true do
             task.wait(0.5)
         end
